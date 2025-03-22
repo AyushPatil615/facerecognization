@@ -1,61 +1,59 @@
-# IMPORT
+from flask import Flask, request, jsonify
 import cv2 as cv
 import numpy as np
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import tensorflow as tf
+import base64
 from sklearn.preprocessing import LabelEncoder
 import pickle
 from keras_facenet import FaceNet
 from mtcnn import MTCNN
 
-# INITIALIZE
+app = Flask(__name__)
+
+# Load models and encoders
 facenet = FaceNet()
 faces_embeddings = np.load("faces_embeddings_done_4classes.npz")
 Y = faces_embeddings['arr_1']
 encoder = LabelEncoder()
 encoder.fit(Y)
 model = pickle.load(open("svm_model_160x160.pkl", 'rb'))
-
-# Initialize MTCNN detector
 detector = MTCNN()
 
-cap = cv.VideoCapture(1)
-
-# WHILE LOOP
-while cap.isOpened():
-    _, frame = cap.read()
-    rgb_img = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
-    
-    # Detect faces using MTCNN
+def recognize_face(img):
+    rgb_img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
     faces = detector.detect_faces(rgb_img)
     
-    for face in faces:
-        x, y, w, h = face['box']
-        x, y = abs(x), abs(y)  # Ensure no negative values
+    if faces:
+        x, y, w, h = faces[0]['box']
+        x, y = abs(x), abs(y)
+        face_img = rgb_img[y:y+h, x:x+w]
+        face_img = cv.resize(face_img, (160, 160))
+        face_img = np.expand_dims(face_img, axis=0)
 
-        # Extract and preprocess face
-        img = rgb_img[y:y+h, x:x+w]
-        img = cv.resize(img, (160, 160))  # Resize to match FaceNet input size
-        img = np.expand_dims(img, axis=0)  # Add batch dimension
-        
-        # Generate face embeddings and predict
-        ypred = facenet.embeddings(img)
+        ypred = facenet.embeddings(face_img)
         face_name = model.predict(ypred)
         final_name = encoder.inverse_transform(face_name)[0]
+        return final_name
+    
+    return "No face detected"
 
-        # Draw bounding box and label
-        cv.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 255), 2)
-        cv.putText(frame, str(final_name), (x, y - 10), cv.FONT_HERSHEY_SIMPLEX,
-                   1, (0, 0, 255), 2, cv.LINE_AA)
+@app.route('/mark-attendance', methods=['POST'])
+def mark_attendance():
+    try:
+        data = request.json.get('image')
+        if not data:
+            return jsonify({"status": "error", "message": "No image provided"}), 400
+        
+        # Decode base64 image
+        img_data = base64.b64decode(data)
+        np_img = np.frombuffer(img_data, np.uint8)
+        img = cv.imdecode(np_img, cv.IMREAD_COLOR)
 
-    # Show the frame
-    cv.imshow("Face Recognition:", frame)
+        result = recognize_face(img)
+        return jsonify({"status": "success", "name": result})
 
-    # Break loop on 'q' press
-    if cv.waitKey(1) & 0xFF == ord('q'):
-        break
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-# Release resources
-cap.release()
-cv.destroyAllWindows()
+if __name__ == '__main__':
+    app.run(port=5000)
+
