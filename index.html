@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Attendance Marking System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f0f2f5;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            text-align: center;
+            width: 100%;
+            max-width: 1200px;
+        }
+        h1 {
+            margin-bottom: 30px;
+            color: #333;
+            font-size: 2.5em;
+            text-align: center;
+        }
+        #videoElement {
+            width: 90%;
+            max-width: 1000px;
+            height: 600px;
+            background-color: #666;
+            margin: 20px auto;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        #markAttendanceBtn {
+            padding: 15px 40px;
+            font-size: 24px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #markAttendanceBtn:hover {
+            background-color: #45a049;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        #result {
+            font-size: 20px;
+            margin-top: 20px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Attendance Marking System</h1>
+        <button id="markAttendanceBtn">Mark Attendance</button>
+        <video id="videoElement" autoplay playsinline></video>
+        <p id="result"></p>
+    </div>
+
+    <script>
+        const video = document.getElementById('videoElement');
+        const button = document.getElementById('markAttendanceBtn');
+        const result = document.getElementById('result');
+        let stream = null;
+
+        // Start webcam
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+            } catch (err) {
+                console.error('Error accessing webcam:', err);
+                alert('Error accessing webcam. Please grant camera permissions.');
+            }
+        }
+
+        // Stop webcam
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+                stream = null;
+            }
+        }
+
+        // Capture image and send to backend
+        async function captureAndSend() {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Convert image to base64
+            const imageData = canvas.toDataURL('image/jpeg').split(',')[1];
+
+            try {
+                const response = await fetch('http://127.0.0.1:5000/mark-attendance', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ image: imageData })
+                });
+
+                const data = await response.json();
+                if (data.status === 'success') {
+                    result.textContent = `✅ Attendance marked for: ${data.name}`;
+                } else {
+                    result.textContent = `❌ Error: ${data.message}`;
+                }
+            } catch (err) {
+                console.error('Error:', err);
+                result.textContent = '❌ Error connecting to server.';
+            }
+        }
+
+        // Button event to toggle camera and mark attendance
+        button.addEventListener('click', async () => {
+            if (!stream) {
+                await startCamera();
+                button.textContent = 'Capture & Mark';
+            } else {
+                await captureAndSend();
+                stopCamera();
+                button.textContent = 'Mark Attendance';
+            }
+        });
+
+        // Start camera automatically on load
+        startCamera();
+    </script>
+</body>
+</html>
